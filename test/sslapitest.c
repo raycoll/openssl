@@ -16510,6 +16510,190 @@ end:
 }
 #endif
 
+#if !defined(OPENSSL_NO_TLS1_3) && !defined(OPENSSL_NO_EC) \
+    && !defined(OPENSSL_NO_ECX)
+/*
+ * Key share learning (SSL_OP_KEYSHARE_LEARNING) tests. By default the client
+ * advertises X25519 and P-384 and predicts only X25519, and the server ranks
+ * P-384 in a tuple above X25519, so the client's first handshake gets a
+ * HelloRetryRequest for P-384.
+ */
+#define KSL_CLIENT_GROUPS "*X25519:P-384"
+#define KSL_SERVER_GROUPS "P-384/X25519"
+#define KSL_X25519 29
+#define KSL_P384 24
+
+/** The supported_groups the server receives from KSL_CLIENT_GROUPS */
+static const uint16_t ksl_client_groups[] = { KSL_X25519, KSL_P384 };
+
+/** ClientHellos sent on the current connection, counted by ksl_msg_cb() */
+static int ksl_client_hellos;
+
+/**
+ * @brief Message callback that counts the ClientHellos a client sends.
+ */
+static void ksl_msg_cb(int write_p, int version, int content_type,
+    const void *buf, size_t len, SSL *ssl, void *arg)
+{
+    if (write_p == 1 && content_type == SSL3_RT_HANDSHAKE && len > 0
+        && ((const unsigned char *)buf)[0] == SSL3_MT_CLIENT_HELLO)
+        ksl_client_hellos++;
+}
+
+/**
+ * @brief One handshake for ksl_connect(): inputs first, then outputs.
+ */
+typedef struct {
+    SSL_SESSION *sess; /**< Session to attach to the client, or NULL */
+    const char *cgroups; /**< Client groups for this connection, or NULL */
+    const uint16_t *expgroups; /**< Expected supported_groups, or NULL */
+    size_t numexp; /**< Number of entries in expgroups */
+    uint64_t clear_options; /**< Client options to clear */
+    int verify_fail; /**< Client rejects the server certificate */
+    int hellos; /**< ClientHellos sent; 2 means a HelloRetryRequest */
+    int group; /**< NID of the negotiated group */
+    int reused; /**< Session was resumed */
+    SSL_SESSION *out; /**< Client session afterwards; caller frees */
+} KSL_CONN;
+
+/**
+ * @brief Create the client and server contexts used by the learning tests.
+ * @param sctx receives the server context
+ * @param cctx receives the client context
+ * @param learning set SSL_OP_KEYSHARE_LEARNING on the client if nonzero
+ * @returns 1 on success, 0 on failure
+ */
+static int ksl_setup(SSL_CTX **sctx, SSL_CTX **cctx, int learning)
+{
+    if (!TEST_true(create_ssl_ctx_pair(libctx, TLS_server_method(),
+            TLS_client_method(), TLS1_3_VERSION, 0,
+            sctx, cctx, cert, privkey))
+        || !TEST_true(SSL_CTX_set1_groups_list(*sctx, KSL_SERVER_GROUPS))
+        || !TEST_true(SSL_CTX_set1_groups_list(*cctx, KSL_CLIENT_GROUPS)))
+        return 0;
+    if (learning
+        && !TEST_true(SSL_CTX_set_options(*cctx, SSL_OP_KEYSHARE_LEARNING)))
+        return 0;
+    return 1;
+}
+
+/**
+ * @brief Run the handshake described by @p c and fill in its outputs.
+ * Also checks that the server received the expected supported_groups.
+ * @param sctx the server context
+ * @param cctx the client context
+ * @param c the handshake inputs and outputs
+ * @returns 1 on success, 0 on failure
+ */
+static int ksl_connect(SSL_CTX *sctx, SSL_CTX *cctx, KSL_CONN *c)
+{
+    SSL *clientssl = NULL, *serverssl = NULL;
+    const uint16_t *exp = c->expgroups != NULL ? c->expgroups : ksl_client_groups;
+    size_t numexp = c->expgroups != NULL ? c->numexp : OSSL_NELEM(ksl_client_groups);
+    uint16_t *iana = NULL;
+    unsigned char buf[1];
+    size_t readbytes;
+    int n, ret = 0;
+
+    ksl_client_hellos = 0;
+    if (!TEST_true(create_ssl_objects(sctx, cctx, &serverssl, &clientssl,
+            NULL, NULL))
+        || (c->cgroups != NULL
+            && !TEST_true(SSL_set1_groups_list(clientssl, c->cgroups)))
+        || (c->sess != NULL && !TEST_true(SSL_set_session(clientssl, c->sess))))
+        goto end;
+    SSL_clear_options(clientssl, c->clear_options);
+    if (c->verify_fail)
+        SSL_set_verify(clientssl, SSL_VERIFY_PEER, NULL);
+    SSL_set_msg_callback(clientssl, ksl_msg_cb);
+
+    if (c->verify_fail) {
+        if (!TEST_false(create_ssl_connection(serverssl, clientssl,
+                SSL_ERROR_NONE)))
+            goto end;
+    } else {
+        if (!TEST_true(create_ssl_connection(serverssl, clientssl,
+                SSL_ERROR_NONE)))
+            goto end;
+        /* Read NewSessionTickets; a clean shutdown keeps the session resumable */
+        if (!TEST_false(SSL_read_ex(clientssl, buf, sizeof(buf), &readbytes)))
+            goto end;
+        SSL_shutdown(clientssl);
+        SSL_shutdown(serverssl);
+    }
+
+    n = SSL_get0_iana_groups(serverssl, &iana);
+    if (!TEST_int_eq(n, (int)numexp)
+        || !TEST_mem_eq(iana, n * sizeof(*iana), exp, numexp * sizeof(*exp)))
+        goto end;
+
+    c->hellos = ksl_client_hellos;
+    c->group = SSL_get_negotiated_group(clientssl);
+    c->reused = SSL_session_reused(clientssl);
+    if (!TEST_ptr(c->out = SSL_get1_session(clientssl)))
+        goto end;
+    ret = 1;
+end:
+    SSL_free(serverssl);
+    SSL_free(clientssl);
+    return ret;
+}
+
+/**
+ * @brief A learned group avoids the HelloRetryRequest.
+ * The first handshake gets a HelloRetryRequest for P-384. The next handshake
+ * with the learned session, after an i2d/d2i round trip, resumes on P-384 in
+ * one round trip.
+ */
+static int test_keyshare_learning_hrr(void)
+{
+    SSL_CTX *sctx = NULL, *cctx = NULL;
+    KSL_CONN cold = { 0 }, warm = { 0 };
+    SSL_SESSION *sess = NULL;
+    unsigned char *der = NULL;
+    const unsigned char *p;
+    int derlen, testresult = 0;
+
+    if (is_fips)
+        return TEST_skip("X25519 is not available in the FIPS provider");
+    if (!ksl_setup(&sctx, &cctx, 1))
+        goto end;
+
+    if (!TEST_true(ksl_connect(sctx, cctx, &cold))
+        || !TEST_int_eq(cold.hellos, 2)
+        || !TEST_int_eq(cold.group, NID_secp384r1)
+        || !TEST_uint_eq(SSL_SESSION_get_learned_group_id(cold.out), KSL_P384))
+        goto end;
+
+    if (!TEST_int_gt(derlen = i2d_SSL_SESSION(cold.out, &der), 0))
+        goto end;
+    p = der;
+    if (!TEST_ptr(sess = d2i_SSL_SESSION(NULL, &p, derlen))
+        || !TEST_uint_eq(SSL_SESSION_get_learned_group_id(sess), KSL_P384))
+        goto end;
+
+    warm.sess = sess;
+    if (!TEST_true(ksl_connect(sctx, cctx, &warm))
+        || !TEST_int_eq(warm.hellos, 1)
+        || !TEST_int_eq(warm.group, NID_secp384r1)
+        || !TEST_true(warm.reused))
+        goto end;
+
+    testresult = 1;
+end:
+    OPENSSL_free(der);
+    SSL_SESSION_free(sess);
+    SSL_SESSION_free(cold.out);
+    SSL_SESSION_free(warm.out);
+    SSL_CTX_free(sctx);
+    SSL_CTX_free(cctx);
+    return testresult;
+}
+#endif /*                                                        \
+        * !defined(OPENSSL_NO_TLS1_3) && !defined(OPENSSL_NO_EC) \
+        * && !defined(OPENSSL_NO_ECX)                            \
+        */
+
 /*
  * Test SSL_CTX_set1_verify/chain_cert_store and SSL_CTX_get_verify/chain_cert_store.
  */
@@ -19668,6 +19852,13 @@ int setup_tests(void)
 #if !defined(OPENSSL_NO_EC) && !defined(OPENSSL_NO_TLS1_2)
     ADD_TEST(test_legacy_ec_point_formats);
 #endif
+#if !defined(OPENSSL_NO_TLS1_3) && !defined(OPENSSL_NO_EC) \
+    && !defined(OPENSSL_NO_ECX)
+    ADD_TEST(test_keyshare_learning_hrr);
+#endif /*                                                        \
+        * !defined(OPENSSL_NO_TLS1_3) && !defined(OPENSSL_NO_EC) \
+        * && !defined(OPENSSL_NO_ECX)                            \
+        */
     ADD_TEST(test_set_verify_cert_store_ssl_ctx);
     ADD_TEST(test_set_verify_cert_store_ssl);
     ADD_ALL_TESTS(test_session_timeout, 1);
