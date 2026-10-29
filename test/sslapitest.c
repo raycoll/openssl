@@ -16927,6 +16927,54 @@ end:
     SSL_CTX_free(cctx);
     return testresult;
 }
+
+/**
+ * @brief A stale learned group is replaced after one HelloRetryRequest.
+ * Once the server drops P-384, the next handshake predicts P-384, gets a
+ * HelloRetryRequest for X25519 and records X25519. The handshake after that
+ * takes one round trip.
+ */
+static int test_keyshare_learning_relearn(void)
+{
+    SSL_CTX *sctx = NULL, *cctx = NULL;
+    KSL_CONN cold = { 0 }, warm = { 0 }, third = { 0 };
+    int testresult = 0;
+
+    if (is_fips)
+        return TEST_skip("X25519 is not available in the FIPS provider");
+    if (!ksl_setup(&sctx, &cctx, 1))
+        goto end;
+
+    if (!TEST_true(ksl_connect(sctx, cctx, &cold))
+        || !TEST_uint_eq(SSL_SESSION_get_learned_group_id(cold.out), KSL_P384))
+        goto end;
+
+    /* Remove P-384 from the server's groups */
+    if (!TEST_true(SSL_CTX_set1_groups_list(sctx, "X25519")))
+        goto end;
+
+    warm.sess = cold.out;
+    if (!TEST_true(ksl_connect(sctx, cctx, &warm))
+        || !TEST_int_eq(warm.hellos, 2)
+        || !TEST_int_eq(warm.group, NID_X25519)
+        || !TEST_uint_eq(SSL_SESSION_get_learned_group_id(warm.out), KSL_X25519))
+        goto end;
+
+    third.sess = warm.out;
+    if (!TEST_true(ksl_connect(sctx, cctx, &third))
+        || !TEST_int_eq(third.hellos, 1)
+        || !TEST_int_eq(third.group, NID_X25519))
+        goto end;
+
+    testresult = 1;
+end:
+    SSL_SESSION_free(cold.out);
+    SSL_SESSION_free(warm.out);
+    SSL_SESSION_free(third.out);
+    SSL_CTX_free(sctx);
+    SSL_CTX_free(cctx);
+    return testresult;
+}
 #endif /*                                                        \
         * !defined(OPENSSL_NO_TLS1_3) && !defined(OPENSSL_NO_EC) \
         * && !defined(OPENSSL_NO_ECX)                            \
@@ -20099,6 +20147,7 @@ int setup_tests(void)
     ADD_TEST(test_keyshare_learning_failed_handshake);
     ADD_TEST(test_keyshare_learning_expired);
     ADD_TEST(test_keyshare_learning_shared_session);
+    ADD_TEST(test_keyshare_learning_relearn);
 #endif /*                                                        \
         * !defined(OPENSSL_NO_TLS1_3) && !defined(OPENSSL_NO_EC) \
         * && !defined(OPENSSL_NO_ECX)                            \
