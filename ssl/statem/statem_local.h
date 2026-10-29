@@ -517,6 +517,15 @@ EXT_RETURN tls_construct_ctos_post_handshake_auth(SSL_CONNECTION *s, WPACKET *pk
 int tls_parse_stoc_renegotiate(SSL_CONNECTION *s, PACKET *pkt,
     unsigned int context,
     X509 *x, size_t chainidx);
+/**
+ * @brief Record the negotiated group in the session for key share prediction.
+ * A client calls this once a (D)TLS 1.3 handshake has completed and the
+ * server is authenticated, with a session the connection owns: the new session
+ * of a full handshake, or the copy tls_process_new_session_ticket() makes. It
+ * does nothing unless SSL_OP_KEYSHARE_LEARNING is set.
+ * @param s the client connection
+ */
+void tls_learn_keyshare_hint(SSL_CONNECTION *s);
 int tls_parse_stoc_server_name(SSL_CONNECTION *s, PACKET *pkt,
     unsigned int context,
     X509 *x, size_t chainidx);

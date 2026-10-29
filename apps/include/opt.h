@@ -172,6 +172,7 @@
     OPT_S_NO_EMS,                                                     \
     OPT_S_NO_TX_CERT_COMP,                                            \
     OPT_S_NO_RX_CERT_COMP,                                            \
+    OPT_S_KEYSHARE_LEARNING,                                          \
     OPT_S__LAST
 
 #define OPT_S_OPTIONS                                                                                           \
@@ -233,7 +234,9 @@
         { "no_etm", OPT_S_NO_ETM, '-',                                                                          \
             "Disable Encrypt-then-Mac extension" },                                                             \
         { "no_ems", OPT_S_NO_EMS, '-',                                                                          \
-            "Disable Extended master secret extension" }
+            "Disable Extended master secret extension" },                                                       \
+        { "keyshare_learning", OPT_S_KEYSHARE_LEARNING, '-',                                                    \
+            "TLSv1.3 client: predict the key share group learned from the reused session" }
 
 #define OPT_S_CASES               \
     OPT_S__FIRST:                 \
@@ -274,7 +277,8 @@
     case OPT_S_DEBUGBROKE:        \
     case OPT_S_NO_MIDDLEBOX:      \
     case OPT_S_NO_ETM:            \
-    case OPT_S_NO_EMS
+    case OPT_S_NO_EMS:            \
+    case OPT_S_KEYSHARE_LEARNING
 
 #define IS_NO_PROT_FLAG(o)                                         \
     (o == OPT_S_NOSSL3 || o == OPT_S_NOTLS1 || o == OPT_S_NOTLS1_1 \

@@ -191,7 +191,8 @@ $OpenSSL::safe::opt_s_synopsis = ""
 . "[B<-max_protocol> I<maxprot>]\n"
 . "[B<-record_padding> I<padding>]\n"
 . "[B<-debug_broken_protocol>]\n"
-. "[B<-no_middlebox>]";
+. "[B<-no_middlebox>]\n"
+. "[B<-keyshare_learning>]";
 $OpenSSL::safe::opt_s_item = ""
 . "=item B<-bugs>, B<-comp>, B<-no_comp>, B<-no_ticket>, B<-serverpref>,\n"
 . "B<-client_renegotiation>,\n"
@@ -203,7 +204,8 @@ $OpenSSL::safe::opt_s_item = ""
 . "I<algs>, B<-client_sigalgs> I<algs>, B<-groups> I<groups>, B<-curves>\n"
 . "I<curves>, B<-named_curve> I<curve>, B<-cipher> I<ciphers>, B<-ciphersuites>\n"
 . "I<1.3ciphers>, B<-min_protocol> I<minprot>, B<-max_protocol> I<maxprot>,\n"
-. "B<-record_padding> I<padding>, B<-debug_broken_protocol>, B<-no_middlebox>\n"
+. "B<-record_padding> I<padding>, B<-debug_broken_protocol>, B<-no_middlebox>,\n"
+. "B<-keyshare_learning>\n"
 . "\n"
 . "See L<SSL_CONF_cmd(3)/SUPPORTED COMMAND LINE COMMANDS> for details.";
 

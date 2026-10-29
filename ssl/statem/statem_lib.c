@@ -1486,6 +1486,13 @@ WORK_STATE tls_finish_handshake(SSL_CONNECTION *s, ossl_unused WORK_STATE wst,
             ssl_tsan_counter(sctx, &sctx->stats.sess_accept_good);
             s->handshake_func = ossl_statem_accept;
         } else {
+            /*
+             * The handshake has completed and the server is authenticated. A
+             * resumed session may be shared with other threads, so
+             * tls_process_new_session_ticket() records its group.
+             */
+            if (!s->hit)
+                tls_learn_keyshare_hint(s);
             if (SSL_CONNECTION_IS_VERSION13(s)) {
                 /*
                  * We encourage applications to only use TLSv1.3 tickets once,

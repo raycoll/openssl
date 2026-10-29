@@ -427,6 +427,43 @@ are consistent across HelloRetryRequest replays within the same connection.
 If a HelloRetryRequest asks for a new key share, the second ClientHello omits
 the GREASE key share so that the requested key share is the only entry.
 
+=item SSL_OP_KEYSHARE_LEARNING
+
+Enables TLSv1.3 client key share learning.  A TLSv1.3 client advertises the
+groups it supports in B<supported_groups> and predicts a subset of them in
+B<key_share> (see L<SSL_CTX_set1_groups_list(3)>).  When the server selects a
+group the client did not predict, it asks for it with a HelloRetryRequest,
+costing a round trip.  With this option set the client records, in the
+B<SSL_SESSION> produced by a completed handshake, the group that was
+negotiated: the group the server selected under its own policy.  When that
+session is later attached to a new connection with L<SSL_set_session(3)>,
+the client predicts a single key share for the learned group instead of the
+configured ones, so that the same server can make the same choice without a
+HelloRetryRequest.
+
+The learned group is recorded only once the handshake has fully completed and
+the server has been authenticated; a ServerHello from an attacker cannot
+influence it.  It is only ever used for the key share prediction: the
+client's B<supported_groups> list is sent unchanged, so the server can still
+select a more preferred group with a HelloRetryRequest, after which that
+group is learned instead.  A learned group that is no longer in the client's
+configured list, or no longer permitted by the security level, is ignored.
+So is the learned group of a session that has expired (see
+L<SSL_SESSION_get_timeout(3)>), which bounds how long a learned group is
+trusted.
+
+The learned group is stored with the session by L<i2d_SSL_SESSION(3)> and can
+be read with L<SSL_SESSION_get_learned_group_id(3)>.  A resumed session is not
+modified; the group negotiated on a resumed connection is recorded in the
+sessions created from the server's new tickets, which are passed to the new
+session callback (see L<SSL_CTX_sess_set_new_cb(3)>).  The learned group is
+also carried by sessions that are not resumable, for instance when the server
+issued no ticket.  The new session callback is not called for such a session;
+L<SSL_get1_session(3)> returns it once the handshake has completed.  It expires
+after the context's session timeout (see L<SSL_CTX_set_timeout(3)>).  An
+application may keep such a session per server purely to benefit from the
+learned prediction.  Only used by clients.
+
 =back
 
 The following options no longer have any effect but their identifiers are
@@ -610,6 +647,8 @@ whether these macros are defined or not.
 As of OpenSSL 3.6, use of the B<SSL_OP_CIPHER_SERVER_PREFERENCE> constant
 is discouraged and its semantics became available using the more aptly named
 B<SSL_OP_SERVER_PREFERENCE> constant.
+
+The B<SSL_OP_KEYSHARE_LEARNING> option was added in OpenSSL 4.2.
 
 As of OpenSSL 4.1, B<SSL_OP_TLSEXT_PADDING> has no effect. It previously
 added a padding extension (RFC 7685) to the ClientHello to work around a

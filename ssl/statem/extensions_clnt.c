@@ -893,6 +893,52 @@ err:
 }
 #endif
 
+#if !(defined(OPENSSL_NO_TLS1_3) && defined(OPENSSL_NO_DTLS1_3))
+/**
+ * @brief Check whether a learned group can be predicted on this connection.
+ * @param s the client connection
+ * @param group the TLS group id
+ * @param version1_3 TLS1_3_VERSION or DTLS1_3_VERSION
+ * @returns 1 if @p group is in the client's supported_groups list, valid for
+ *          (D)TLS 1.3 and allowed by the security level, 0 otherwise
+ */
+static int tls_keyshare_hint_usable(SSL_CONNECTION *s, uint16_t group,
+    int version1_3)
+{
+    const uint16_t *ours;
+    size_t numours, i;
+
+    tls1_get_supported_groups(s, &ours, &numours);
+    for (i = 0; i < numours; i++)
+        if (ours[i] == group)
+            break;
+    if (i == numours)
+        return 0;
+    return tls_valid_group(s, group, version1_3, version1_3, NULL, NULL)
+        && tls_group_allowed(s, group, SSL_SECOP_CURVE_SUPPORTED);
+}
+#endif /* !(defined(OPENSSL_NO_TLS1_3) && defined(OPENSSL_NO_DTLS1_3)) */
+
+void tls_learn_keyshare_hint(SSL_CONNECTION *s)
+{
+#if !(defined(OPENSSL_NO_TLS1_3) && defined(OPENSSL_NO_DTLS1_3))
+    const int version1_3 = SSL_CONNECTION_IS_DTLS(s) ? DTLS1_3_VERSION
+                                                     : TLS1_3_VERSION;
+    uint16_t group;
+
+    if (s->server || s->session == NULL
+        || (s->options & SSL_OP_KEYSHARE_LEARNING) == 0
+        || !SSL_CONNECTION_IS_VERSION13(s))
+        return;
+
+    group = (uint16_t)s->session->kex_group;
+    if (group == 0 || group == s->session->kex_hint
+        || !tls_keyshare_hint_usable(s, group, version1_3))
+        return;
+    s->session->kex_hint = group;
+#endif /* !(defined(OPENSSL_NO_TLS1_3) && defined(OPENSSL_NO_DTLS1_3)) */
+}
+
 EXT_RETURN tls_construct_ctos_key_share(SSL_CONNECTION *s, WPACKET *pkt,
     unsigned int context, X509 *x,
     size_t chainidx)
@@ -961,13 +1007,22 @@ EXT_RETURN tls_construct_ctos_key_share(SSL_CONNECTION *s, WPACKET *pkt,
         }
         valid_keyshare++;
     } else {
+        const int version1_3 = SSL_CONNECTION_IS_DTLS(s) ? DTLS1_3_VERSION
+                                                         : TLS1_3_VERSION;
+
         if (s->ext.supportedgroups == NULL) /* use default */
             add_only_one = 1;
 
-        for (i = 0; i < num_groups; i++) {
-            const int version1_3 = SSL_CONNECTION_IS_DTLS(s) ? DTLS1_3_VERSION
-                                                             : TLS1_3_VERSION;
+        /* A usable learned group replaces the configured predictions */
+        if ((s->options & SSL_OP_KEYSHARE_LEARNING) != 0
+            && s->ext.kex_hint != 0
+            && tls_keyshare_hint_usable(s, s->ext.kex_hint, version1_3)) {
+            pgroups = &s->ext.kex_hint;
+            num_groups = 1;
+            add_only_one = 1;
+        }
 
+        for (i = 0; i < num_groups; i++) {
             if (!tls_group_allowed(s, pgroups[i], SSL_SECOP_CURVE_SUPPORTED))
                 continue;
 

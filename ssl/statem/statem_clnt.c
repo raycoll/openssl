@@ -1252,6 +1252,26 @@ WORK_STATE ossl_statem_client_post_process_message(SSL_CONNECTION *s,
     }
 }
 
+/**
+ * @brief Copy the learned group from the attached session to the connection.
+ * Runs once per connection, before the first ClientHello is built (both
+ * halves of an ECH pair use the result) and before a non-resumable session is
+ * replaced. A session without a ticket carries its learned group too. The
+ * learned group of an expired session is not used.
+ * @param s the client connection
+ */
+static void tls_stash_keyshare_hint(SSL_CONNECTION *s)
+{
+    const SSL_SESSION *sess = s->session;
+
+    if (s->hello_retry_request != SSL_HRR_NONE)
+        return;
+    s->ext.kex_hint = 0;
+    if (sess != NULL && sess->kex_hint != 0
+        && ossl_time_compare(ossl_time_now(), sess->calc_timeout) <= 0)
+        s->ext.kex_hint = (uint16_t)sess->kex_hint;
+}
+
 #ifndef OPENSSL_NO_ECH
 /*
  * Wrap ClientHello construction with ECH code.
@@ -1311,6 +1331,7 @@ __owur CON_FUNC_RETURN tls_construct_client_hello(SSL_CONNECTION *s,
         SSLfatal(s, SSL_AD_INTERNAL_ERROR, protverr);
         return 0;
     }
+    tls_stash_keyshare_hint(s);
     /* If we're not really attempting ECH, just call existing code.  */
     if (s->ext.ech.es == NULL)
         return tls_construct_client_hello_aux(s, pkt);
@@ -1498,6 +1519,10 @@ __owur CON_FUNC_RETURN tls_construct_client_hello(SSL_CONNECTION *s, WPACKET *pk
         return CON_FUNC_ERROR;
     }
 
+#if defined(OPENSSL_NO_ECH)
+    /* ECH builds call this from the tls_construct_client_hello() wrapper */
+    tls_stash_keyshare_hint(s);
+#endif /* defined(OPENSSL_NO_ECH) */
 #ifndef OPENSSL_NO_ECH
     /* if we're doing ECH, re-use session ID setup earlier */
     if (s->ext.ech.es == NULL)
@@ -3402,6 +3427,9 @@ MSG_PROCESS_RETURN tls_process_new_session_ticket(SSL_CONNECTION *s,
         s->session->ext.alpn_selected = NULL;
         s->session->ext.alpn_selected_len = 0;
     }
+
+    /* As for ALPN, the learned group comes from this connection */
+    tls_learn_keyshare_hint(s);
 
     /* This is a standalone message in TLSv1.3, so there is no more to read */
     if (SSL_CONNECTION_IS_VERSION13(s)) {

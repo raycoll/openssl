@@ -41,6 +41,22 @@ OpenSSL 4.2
 
    *Alexandr Nedvedicky*
 
+ * Added TLS 1.3 client key share learning, enabled with the new
+   `SSL_OP_KEYSHARE_LEARNING` option (`KeyShareLearning` in configuration
+   files, `-keyshare_learning` on the command line).  A client now records
+   in the `SSL_SESSION` produced by a completed handshake the key agreement
+   group that was negotiated.  When the session is reused before it
+   expires, the client predicts a key share for that group, so that a
+   server which previously needed a `HelloRetryRequest` to obtain the group
+   it selects gets it in a single round trip.  The learned group only
+   affects key share prediction, never the advertised `supported_groups`;
+   it is learned only from authenticated, completed handshakes; it is
+   stored with the session by `i2d_SSL_SESSION()`, including for sessions
+   without a ticket; and it can be read with the new
+   `SSL_SESSION_get_learned_group_id()` function.
+
+   *Steven Collison*
+
  * s390x: Disable mod-expo offloading to a crypto card for small exponents.
    Add a new keyword `cex_min_bits:<bits>` for the `OPENSSL_s390xcap`
    environment variable to specify the minimum number of bits that the

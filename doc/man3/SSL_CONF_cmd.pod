@@ -105,6 +105,13 @@ In TLSv1.3, on resumption let the server prefer a non-(ec)dhe based key
 exchange mode over an (ec)dhe based one. Requires B<-allow_no_dhe_kex>.
 Equivalent to B<SSL_OP_PREFER_NO_DHE_KEX>. Only used by servers.
 
+=item B<-keyshare_learning>
+
+In TLSv1.3, let the client remember the key agreement group negotiated with
+each server and predict a key share for it when the session is reused,
+avoiding a HelloRetryRequest. Equivalent to B<SSL_OP_KEYSHARE_LEARNING>. Only
+used by clients.
+
 =item B<-strict>
 
 Enables strict certificate chain checking. Equivalent to setting
@@ -669,6 +676,11 @@ B<KTLS>: Enables kernel TLS if support has been compiled in, and it is supported
 by the negotiated ciphersuites and extensions. Equivalent to
 B<SSL_OP_ENABLE_KTLS>.
 
+B<KeyShareLearning>: In TLSv1.3, let the client remember the key agreement
+group negotiated with each server and predict a key share for it when the
+session is reused. Equivalent to B<SSL_OP_KEYSHARE_LEARNING>. Only used by
+clients.
+
 B<StrictCertCheck>: Enable strict certificate chain checking. This enforces
 that all certificates in the chain use configured signature algorithms (no
 SHA1 fallback), validates CA certificate parameters against the supported
@@ -883,6 +895,9 @@ L<SSL_CTX_set_options(3)>
 =head1 HISTORY
 
 The SSL_CONF_cmd() function was added in OpenSSL 1.0.2.
+
+The B<-keyshare_learning> command and B<KeyShareLearning> option were added in
+OpenSSL 4.2.
 
 The B<SSL_OP_NO_SSL2> option doesn't have effect since 1.1.0, but the macro
 is retained for backwards compatibility.

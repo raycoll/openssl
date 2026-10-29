@@ -1082,6 +1082,11 @@ int SSL_SESSION_get_protocol_version(const SSL_SESSION *s)
     return s->ssl_version;
 }
 
+unsigned int SSL_SESSION_get_learned_group_id(const SSL_SESSION *s)
+{
+    return s->kex_hint;
+}
+
 int SSL_SESSION_set_protocol_version(SSL_SESSION *s, int version)
 {
     s->ssl_version = version;

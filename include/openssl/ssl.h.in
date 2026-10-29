@@ -458,6 +458,12 @@ typedef int (*SSL_async_callback_fn)(SSL *s, void *arg);
 #define SSL_OP_GREASE SSL_OP_BIT(41)
 
 /*
+ * TLSv1.3 client: predict a key share for the group negotiated in the
+ * handshake that produced the attached session.
+ */
+#define SSL_OP_KEYSHARE_LEARNING SSL_OP_BIT(42)
+
+/*
  * Option "collections."
  */
 #define SSL_OP_NO_SSL_MASK                                 \
@@ -1752,6 +1758,11 @@ __owur long SSL_SESSION_get_timeout(const SSL_SESSION *s);
 __owur long SSL_SESSION_set_timeout(SSL_SESSION *s, long t);
 __owur int SSL_SESSION_get_protocol_version(const SSL_SESSION *s);
 __owur int SSL_SESSION_set_protocol_version(SSL_SESSION *s, int version);
+/**
+ * @brief Get the group a TLSv1.3 client learned for key share prediction.
+ * @see SSL_SESSION_get_learned_group_id(3)
+ */
+__owur unsigned int SSL_SESSION_get_learned_group_id(const SSL_SESSION *s);
 
 __owur time_t SSL_SESSION_get_time_ex(const SSL_SESSION *s);
 __owur time_t SSL_SESSION_set_time_ex(SSL_SESSION *s, time_t t);

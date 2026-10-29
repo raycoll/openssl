@@ -596,6 +596,12 @@ struct ssl_session_st {
     unsigned long cipher_id; /* when ASN.1 loaded, this needs to be used to
                               * load the 'cipher' structure */
     unsigned int kex_group; /* TLS group from key exchange */
+    /**
+     * Client: the group negotiated by the completed handshake that produced
+     * this session, for key share prediction (SSL_OP_KEYSHARE_LEARNING).
+     * 0 if none.
+     */
+    unsigned int kex_hint;
     CRYPTO_EX_DATA ex_data; /* application specific data */
 
     struct {
@@ -1783,6 +1789,11 @@ struct ssl_connection_st {
         /* peer's list */
         size_t peer_supportedgroups_len;
         uint16_t *peer_supportedgroups;
+        /**
+         * Client: the learned group from the attached session, if unexpired.
+         * 0 if none.
+         */
+        uint16_t kex_hint;
 
         /* key shares */
         size_t keyshares_len;

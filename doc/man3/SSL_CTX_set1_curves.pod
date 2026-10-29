@@ -195,6 +195,13 @@ a single key share for the leftmost valid group is sent. A maximum of 4 key shar
 are supported. Example: "P-521:*P-256/*P-384" will add P-521, P-256 and P-384 to the
 supported groups extension in a C<ClientHello> and will send key shares for P-256 and P-384.
 
+When key share learning is enabled with B<SSL_OP_KEYSHARE_LEARNING> (see
+L<SSL_CTX_set_options(3)>) and the connection reuses a session from a
+completed handshake with the same server, the client predicts a single key
+share for the group negotiated in that handshake in place of the key shares
+selected by C<*>, provided the learned group is still in the I<list> and the
+session has not expired.  The supported groups extension is unaffected.
+
 For a TLS 1.3 server, the groups in the string I<list> will be used to determine which group
 is used for the key agreement. The preference order of the group tuples is determined
 by the order of the tuples in the array, and the preference order of the groups within
@@ -396,6 +403,8 @@ L<SSL_get0_group_name(3)>
 The curve functions were added in OpenSSL 1.0.2. The equivalent group
 functions were added in OpenSSL 1.1.1. The SSL_get_negotiated_group() function
 was added in OpenSSL 3.0.0.
+
+Key share learning (B<SSL_OP_KEYSHARE_LEARNING>) was added in OpenSSL 4.2.
 
 Support for ignoring unknown groups in SSL_CTX_set1_groups_list() and
 SSL_set1_groups_list() was added in OpenSSL 3.3.
