@@ -16689,6 +16689,41 @@ end:
     SSL_CTX_free(cctx);
     return testresult;
 }
+
+/**
+ * @brief Without SSL_OP_KEYSHARE_LEARNING nothing is learned or predicted.
+ */
+static int test_keyshare_learning_disabled(void)
+{
+    SSL_CTX *sctx = NULL, *cctx = NULL;
+    KSL_CONN cold = { 0 }, warm = { 0 };
+    int testresult = 0;
+
+    if (is_fips)
+        return TEST_skip("X25519 is not available in the FIPS provider");
+    if (!ksl_setup(&sctx, &cctx, 0))
+        goto end;
+
+    if (!TEST_true(ksl_connect(sctx, cctx, &cold))
+        || !TEST_int_eq(cold.hellos, 2)
+        || !TEST_uint_eq(SSL_SESSION_get_learned_group_id(cold.out), 0))
+        goto end;
+
+    warm.sess = cold.out;
+    if (!TEST_true(ksl_connect(sctx, cctx, &warm))
+        || !TEST_int_eq(warm.hellos, 2)
+        || !TEST_true(warm.reused)
+        || !TEST_uint_eq(SSL_SESSION_get_learned_group_id(warm.out), 0))
+        goto end;
+
+    testresult = 1;
+end:
+    SSL_SESSION_free(cold.out);
+    SSL_SESSION_free(warm.out);
+    SSL_CTX_free(sctx);
+    SSL_CTX_free(cctx);
+    return testresult;
+}
 #endif /*                                                        \
         * !defined(OPENSSL_NO_TLS1_3) && !defined(OPENSSL_NO_EC) \
         * && !defined(OPENSSL_NO_ECX)                            \
@@ -19855,6 +19890,7 @@ int setup_tests(void)
 #if !defined(OPENSSL_NO_TLS1_3) && !defined(OPENSSL_NO_EC) \
     && !defined(OPENSSL_NO_ECX)
     ADD_TEST(test_keyshare_learning_hrr);
+    ADD_TEST(test_keyshare_learning_disabled);
 #endif /*                                                        \
         * !defined(OPENSSL_NO_TLS1_3) && !defined(OPENSSL_NO_EC) \
         * && !defined(OPENSSL_NO_ECX)                            \
