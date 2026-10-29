@@ -16802,6 +16802,44 @@ end:
     SSL_CTX_free(cctx);
     return testresult;
 }
+
+/**
+ * @brief A failed handshake records no learned group.
+ * The client rejects the server certificate after the ServerHello selected
+ * P-384. The session has no learned group, and reusing it predicts X25519.
+ */
+static int test_keyshare_learning_failed_handshake(void)
+{
+    SSL_CTX *sctx = NULL, *cctx = NULL;
+    KSL_CONN failed = { 0 }, next = { 0 };
+    int testresult = 0;
+
+    if (is_fips)
+        return TEST_skip("X25519 is not available in the FIPS provider");
+    if (!ksl_setup(&sctx, &cctx, 1))
+        goto end;
+
+    failed.verify_fail = 1;
+    if (!TEST_true(ksl_connect(sctx, cctx, &failed))
+        || !TEST_int_eq(failed.hellos, 2)
+        || !TEST_int_eq(failed.group, NID_secp384r1)
+        || !TEST_uint_eq(SSL_SESSION_get_learned_group_id(failed.out), 0))
+        goto end;
+    ERR_clear_error();
+
+    next.sess = failed.out;
+    if (!TEST_true(ksl_connect(sctx, cctx, &next))
+        || !TEST_int_eq(next.hellos, 2))
+        goto end;
+
+    testresult = 1;
+end:
+    SSL_SESSION_free(failed.out);
+    SSL_SESSION_free(next.out);
+    SSL_CTX_free(sctx);
+    SSL_CTX_free(cctx);
+    return testresult;
+}
 #endif /*                                                        \
         * !defined(OPENSSL_NO_TLS1_3) && !defined(OPENSSL_NO_EC) \
         * && !defined(OPENSSL_NO_ECX)                            \
@@ -19971,6 +20009,7 @@ int setup_tests(void)
     ADD_TEST(test_keyshare_learning_disabled);
     ADD_TEST(test_keyshare_learning_no_ticket);
     ADD_TEST(test_keyshare_learning_not_configured);
+    ADD_TEST(test_keyshare_learning_failed_handshake);
 #endif /*                                                        \
         * !defined(OPENSSL_NO_TLS1_3) && !defined(OPENSSL_NO_EC) \
         * && !defined(OPENSSL_NO_ECX)                            \
