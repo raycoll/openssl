@@ -16763,6 +16763,45 @@ end:
     SSL_CTX_free(cctx);
     return testresult;
 }
+
+/**
+ * @brief A learned group missing from the client's list is not predicted.
+ * The second connection advertises only X25519, so the client predicts
+ * X25519 and sends no key share for P-384.
+ */
+static int test_keyshare_learning_not_configured(void)
+{
+    static const uint16_t x25519_only[] = { KSL_X25519 };
+    SSL_CTX *sctx = NULL, *cctx = NULL;
+    KSL_CONN cold = { 0 }, warm = { 0 };
+    int testresult = 0;
+
+    if (is_fips)
+        return TEST_skip("X25519 is not available in the FIPS provider");
+    if (!ksl_setup(&sctx, &cctx, 1))
+        goto end;
+
+    if (!TEST_true(ksl_connect(sctx, cctx, &cold))
+        || !TEST_uint_eq(SSL_SESSION_get_learned_group_id(cold.out), KSL_P384))
+        goto end;
+
+    warm.sess = cold.out;
+    warm.cgroups = "*X25519";
+    warm.expgroups = x25519_only;
+    warm.numexp = OSSL_NELEM(x25519_only);
+    if (!TEST_true(ksl_connect(sctx, cctx, &warm))
+        || !TEST_int_eq(warm.hellos, 1)
+        || !TEST_int_eq(warm.group, NID_X25519))
+        goto end;
+
+    testresult = 1;
+end:
+    SSL_SESSION_free(cold.out);
+    SSL_SESSION_free(warm.out);
+    SSL_CTX_free(sctx);
+    SSL_CTX_free(cctx);
+    return testresult;
+}
 #endif /*                                                        \
         * !defined(OPENSSL_NO_TLS1_3) && !defined(OPENSSL_NO_EC) \
         * && !defined(OPENSSL_NO_ECX)                            \
@@ -19931,6 +19970,7 @@ int setup_tests(void)
     ADD_TEST(test_keyshare_learning_hrr);
     ADD_TEST(test_keyshare_learning_disabled);
     ADD_TEST(test_keyshare_learning_no_ticket);
+    ADD_TEST(test_keyshare_learning_not_configured);
 #endif /*                                                        \
         * !defined(OPENSSL_NO_TLS1_3) && !defined(OPENSSL_NO_EC) \
         * && !defined(OPENSSL_NO_ECX)                            \
