@@ -16880,6 +16880,53 @@ end:
     SSL_CTX_free(cctx);
     return testresult;
 }
+
+/**
+ * @brief Learning on resumption leaves the supplied session unchanged.
+ * The resumed connection negotiates the session's group, so the key_share
+ * code makes no copy of the session. The tickets issued on that connection
+ * carry the learned group.
+ */
+static int test_keyshare_learning_shared_session(void)
+{
+    SSL_CTX *sctx = NULL, *cctx = NULL;
+    KSL_CONN cold = { 0 }, warm = { 0 }, third = { 0 };
+    int testresult = 0;
+
+    if (is_fips)
+        return TEST_skip("X25519 is not available in the FIPS provider");
+    if (!ksl_setup(&sctx, &cctx, 1))
+        goto end;
+
+    /* A session from a connection that did not learn */
+    cold.clear_options = SSL_OP_KEYSHARE_LEARNING;
+    if (!TEST_true(ksl_connect(sctx, cctx, &cold))
+        || !TEST_uint_eq(SSL_SESSION_get_learned_group_id(cold.out), 0))
+        goto end;
+
+    /* Resumed with learning, on the same group */
+    warm.sess = cold.out;
+    if (!TEST_true(ksl_connect(sctx, cctx, &warm))
+        || !TEST_int_eq(warm.hellos, 2)
+        || !TEST_true(warm.reused)
+        || !TEST_uint_eq(SSL_SESSION_get_learned_group_id(cold.out), 0)
+        || !TEST_uint_eq(SSL_SESSION_get_learned_group_id(warm.out), KSL_P384))
+        goto end;
+
+    third.sess = warm.out;
+    if (!TEST_true(ksl_connect(sctx, cctx, &third))
+        || !TEST_int_eq(third.hellos, 1))
+        goto end;
+
+    testresult = 1;
+end:
+    SSL_SESSION_free(cold.out);
+    SSL_SESSION_free(warm.out);
+    SSL_SESSION_free(third.out);
+    SSL_CTX_free(sctx);
+    SSL_CTX_free(cctx);
+    return testresult;
+}
 #endif /*                                                        \
         * !defined(OPENSSL_NO_TLS1_3) && !defined(OPENSSL_NO_EC) \
         * && !defined(OPENSSL_NO_ECX)                            \
@@ -20051,6 +20098,7 @@ int setup_tests(void)
     ADD_TEST(test_keyshare_learning_not_configured);
     ADD_TEST(test_keyshare_learning_failed_handshake);
     ADD_TEST(test_keyshare_learning_expired);
+    ADD_TEST(test_keyshare_learning_shared_session);
 #endif /*                                                        \
         * !defined(OPENSSL_NO_TLS1_3) && !defined(OPENSSL_NO_EC) \
         * && !defined(OPENSSL_NO_ECX)                            \
