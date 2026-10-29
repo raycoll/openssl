@@ -16724,6 +16724,45 @@ end:
     SSL_CTX_free(cctx);
     return testresult;
 }
+
+/**
+ * @brief Learning works with a server that issues no tickets.
+ * The session is not resumable. Attaching it predicts P-384, and the full
+ * handshake takes one round trip.
+ */
+static int test_keyshare_learning_no_ticket(void)
+{
+    SSL_CTX *sctx = NULL, *cctx = NULL;
+    KSL_CONN cold = { 0 }, warm = { 0 };
+    int testresult = 0;
+
+    if (is_fips)
+        return TEST_skip("X25519 is not available in the FIPS provider");
+    if (!ksl_setup(&sctx, &cctx, 1)
+        || !TEST_true(SSL_CTX_set_num_tickets(sctx, 0)))
+        goto end;
+
+    if (!TEST_true(ksl_connect(sctx, cctx, &cold))
+        || !TEST_int_eq(cold.hellos, 2)
+        || !TEST_false(SSL_SESSION_is_resumable(cold.out))
+        || !TEST_uint_eq(SSL_SESSION_get_learned_group_id(cold.out), KSL_P384))
+        goto end;
+
+    warm.sess = cold.out;
+    if (!TEST_true(ksl_connect(sctx, cctx, &warm))
+        || !TEST_int_eq(warm.hellos, 1)
+        || !TEST_int_eq(warm.group, NID_secp384r1)
+        || !TEST_false(warm.reused))
+        goto end;
+
+    testresult = 1;
+end:
+    SSL_SESSION_free(cold.out);
+    SSL_SESSION_free(warm.out);
+    SSL_CTX_free(sctx);
+    SSL_CTX_free(cctx);
+    return testresult;
+}
 #endif /*                                                        \
         * !defined(OPENSSL_NO_TLS1_3) && !defined(OPENSSL_NO_EC) \
         * && !defined(OPENSSL_NO_ECX)                            \
@@ -19891,6 +19930,7 @@ int setup_tests(void)
     && !defined(OPENSSL_NO_ECX)
     ADD_TEST(test_keyshare_learning_hrr);
     ADD_TEST(test_keyshare_learning_disabled);
+    ADD_TEST(test_keyshare_learning_no_ticket);
 #endif /*                                                        \
         * !defined(OPENSSL_NO_TLS1_3) && !defined(OPENSSL_NO_EC) \
         * && !defined(OPENSSL_NO_ECX)                            \
